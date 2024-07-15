@@ -3,7 +3,6 @@ import asyncio
 import subprocess
 import threading
 import time
-from typing import Tuple, Dict
 
 import polars as pl
 from polars.exceptions import ComputeError
@@ -18,9 +17,9 @@ app = FastAPI()
 class UserSession:
     """Class to manage the process and data sending for each user"""
 
-    def __init__(self, websocket: WebSocket, file_key: str):
+    def __init__(self, websocket: WebSocket, process_key: str):
         self.websocket = websocket
-        self.file_key = file_key
+        self.process_key = process_key
         self.thread = None
         self.thread_flag = False
 
@@ -89,70 +88,98 @@ class UserSession:
     def disconnect(self):
         """Clean up on disconnect"""
         self.stop_thread()
-        manager.disconnect(self.websocket)
+
+
+class ProcessManager:
+    """Class to manage processes and their associated user sessions"""
+
+    def __init__(self):
+        self.processes = {}
+
+    def start_process(self, process_key: str, req_from_id: str, req_to_id: str, offset: int):
+        """Start the subprocess if not already running"""
+        if process_key not in self.processes:
+            process = subprocess.Popen(["nohup", "python", "main.py", "--req_from_id", req_from_id, "--req_to_id", req_to_id, "--offset", str(offset)])
+            self.processes[process_key] = {
+                "process": process,
+                "sessions": []
+            }
+            print(f"Started process {process_key} with PID: {process.pid}")
+
+    def stop_process(self, process_key: str):
+        """Stop the subprocess if no more sessions are using it"""
+        if process_key in self.processes:
+            if len(self.processes[process_key]["sessions"]) == 0:
+                process = self.processes[process_key]["process"]
+                print(f"Killing process {process_key} with PID: {process.pid}")
+                process.kill()
+                del self.processes[process_key]
+
+    def add_session(self, process_key: str, session: UserSession):
+        """Add a session to the process"""
+        if process_key in self.processes:
+            self.processes[process_key]["sessions"].append(session)
+
+    def remove_session(self, process_key: str, session: UserSession):
+        """Remove a session from the process"""
+        if process_key in self.processes:
+            self.processes[process_key]["sessions"].remove(session)
+            self.stop_process(process_key)
+
 
 class ConnectionManager:
     """Class defining socket events"""
 
     def __init__(self):
-        self.active_connections: Dict[WebSocket, UserSession] = {}
-        self.processes: Dict[str, Tuple[subprocess.Popen, int]] = {}
+        self.active_connections = {}
 
-    async def connect(self, websocket: WebSocket, file_key: str):
+    async def connect(self, websocket: WebSocket):
         await websocket.accept()
-        user_session = UserSession(websocket, file_key)
-        self.active_connections[websocket] = user_session
-        self.increment_process_ref_count(file_key)
 
     async def disconnect(self, websocket: WebSocket):
         if websocket in self.active_connections:
             user_session = self.active_connections[websocket]
-            file_key = user_session.file_key
-            self.decrement_process_ref_count(file_key)
+            process_key = user_session.process_key
+            process_manager.remove_session(process_key, user_session)
             user_session.disconnect()
             del self.active_connections[websocket]
 
-    def increment_process_ref_count(self, file_key: str):
-        if file_key not in self.processes:
-            process = subprocess.Popen(["nohup", "python", "main.py", file_key.split(":")[1], file_key.split(":")[0], "--offset", "5"])
-            self.processes[file_key] = (process, 1)
-            print(f"Started process {process.pid} for {file_key}")
-        else:
-            process, ref_count = self.processes[file_key]
-            self.processes[file_key] = (process, ref_count + 1)
-            print(f"Incremented ref count for {file_key} to {ref_count + 1}")
-
-    def decrement_process_ref_count(self, file_key: str):
-        if file_key in self.processes:
-            process, ref_count = self.processes[file_key]
-            if ref_count == 1:
-                print(f"Killing process {process.pid} for {file_key}")
-                process.kill()
-                del self.processes[file_key]
-            else:
-                self.processes[file_key] = (process, ref_count - 1)
-                print(f"Decremented ref count for {file_key} to {ref_count - 1}")
 
 manager = ConnectionManager()
+process_manager = ProcessManager()
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
+    await manager.connect(websocket)
+
     try:
         while True:
             message = await websocket.receive_text()
             file_info = json.loads(message)
-            file_folder = file_info.get("fileFolder")
-            file_name = file_info.get("fileName")
+            req_from_id = file_info.get("req_from_id")
+            req_to_id = file_info.get("req_to_id")
+            offset = file_info.get("offset", 5)
+            process_key = f"{req_from_id}-{req_to_id}"
 
-            if not file_folder or not file_name:
-                print("Missing fileFolder or fileName in received data")
-                await manager.active_connections[websocket].send_personal_message(json.dumps({"error": "Missing fileFolder or fileName in received data"}))
+            if not req_from_id or not req_to_id:
+                print("Missing req_from_id or req_to_id in received data")
+                await websocket.send_text(json.dumps({"error": "Missing req_from_id or req_to_id in received data"}))
                 continue
 
-            file_key = f"{file_folder}:{file_name}"
-            await manager.connect(websocket, file_key)
-            user_session = manager.active_connections[websocket]
-            file_path = os.path.join(file_folder, file_name)
+            file_name = f"{req_from_id}-{req_to_id}.csv"
+            file_path = os.path.join("path_to_your_files", file_name)  # Replace "path_to_your_files" with the actual path
+
+            if websocket in manager.active_connections:
+                user_session = manager.active_connections[websocket]
+                if user_session.process_key != process_key:
+                    process_manager.remove_session(user_session.process_key, user_session)
+                    user_session.process_key = process_key
+            else:
+                user_session = UserSession(websocket, process_key)
+                manager.active_connections[websocket] = user_session
+
+            process_manager.start_process(process_key, req_from_id, req_to_id, offset)
+            process_manager.add_session(process_key, user_session)
             user_session.start_thread(file_path)
     except WebSocketDisconnect:
         print("WebSocket disconnect detected")
@@ -168,16 +195,18 @@ async def get():
         </head>
         <body>
             <h1>WebSocket File Streaming</h1>
-            <input type="text" id="fileFolder" placeholder="Enter file folder (e.g., files)" />
-            <input type="text" id="fileName" placeholder="Enter file name (e.g., abc.csv)" />
+            <input type="text" id="req_from_id" placeholder="Enter req_from_id" />
+            <input type="text" id="req_to_id" placeholder="Enter req_to_id" />
+            <input type="number" id="offset" placeholder="Enter offset (default 5)" />
             <button onclick="connectWebSocket()">Connect</button>
             <pre id="output"></pre>
             <script>
                 var ws;
 
                 function connectWebSocket() {
-                    var fileFolder = document.getElementById("fileFolder").value;
-                    var fileName = document.getElementById("fileName").value;
+                    var req_from_id = document.getElementById("req_from_id").value;
+                    var req_to_id = document.getElementById("req_to_id").value;
+                    var offset = document.getElementById("offset").value || 5;
 
                     if (ws) {
                         ws.close();
@@ -185,7 +214,7 @@ async def get():
                     ws = new WebSocket(`ws://127.0.0.1:8000/ws`);
 
                     ws.onopen = function(event) {
-                        ws.send(JSON.stringify({fileFolder: fileFolder, fileName: fileName}));
+                        ws.send(JSON.stringify({req_from_id: req_from_id, req_to_id: req_to_id, offset: offset}));
                     };
 
                     ws.onmessage = function(event) {
