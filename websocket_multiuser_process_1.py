@@ -3,19 +3,56 @@ import asyncio
 import subprocess
 import threading
 import time
+import json
+from typing import Dict, List
 
 import polars as pl
 from polars.exceptions import ComputeError
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
-import json
-
 from starlette.websockets import WebSocketState
 
 app = FastAPI()
 
+class ProcessManager:
+    """Class to manage processes and associated user sessions"""
+
+    def __init__(self):
+        self.processes: Dict[str, Dict] = {}
+
+    def start_process(self, process_key: str, file_name: str, file_folder: str):
+        """Start the subprocess if not already running"""
+        if process_key not in self.processes:
+            process = subprocess.Popen(["nohup", "python", "main.py", file_name, file_folder])
+            self.processes[process_key] = {
+                "process": process,
+                "sessions": []
+            }
+            print(f"Started process {process_key} with PID: {process.pid}")
+
+    def stop_process(self, process_key: str):
+        """Stop the subprocess if no more sessions are using it"""
+        if process_key in self.processes:
+            if len(self.processes[process_key]["sessions"]) == 0:
+                process = self.processes[process_key]["process"]
+                print(f"Killing process {process_key} with PID: {process.pid}")
+                process.kill()
+                del self.processes[process_key]
+
+    def add_session(self, process_key: str, session: 'UserSession'):
+        """Add a session to the process"""
+        if process_key in self.processes:
+            self.processes[process_key]["sessions"].append(session)
+
+    def remove_session(self, process_key: str, session: 'UserSession'):
+        """Remove a session from the process"""
+        if process_key in self.processes:
+            self.processes[process_key]["sessions"].remove(session)
+            self.stop_process(process_key)
+
+
 class UserSession:
-    """Class to manage the process and data sending for each user"""
+    """Class to manage the data sending for each user"""
 
     def __init__(self, websocket: WebSocket, process_key: str):
         self.websocket = websocket
@@ -90,48 +127,11 @@ class UserSession:
         self.stop_thread()
 
 
-class ProcessManager:
-    """Class to manage processes and their associated user sessions"""
-
-    def __init__(self):
-        self.processes = {}
-
-    def start_process(self, process_key: str, req_from_id: str, req_to_id: str, offset: int):
-        """Start the subprocess if not already running"""
-        if process_key not in self.processes:
-            process = subprocess.Popen(["nohup", "python", "main.py", "--req_from_id", req_from_id, "--req_to_id", req_to_id, "--offset", str(offset)])
-            self.processes[process_key] = {
-                "process": process,
-                "sessions": []
-            }
-            print(f"Started process {process_key} with PID: {process.pid}")
-
-    def stop_process(self, process_key: str):
-        """Stop the subprocess if no more sessions are using it"""
-        if process_key in self.processes:
-            if len(self.processes[process_key]["sessions"]) == 0:
-                process = self.processes[process_key]["process"]
-                print(f"Killing process {process_key} with PID: {process.pid}")
-                process.kill()
-                del self.processes[process_key]
-
-    def add_session(self, process_key: str, session: UserSession):
-        """Add a session to the process"""
-        if process_key in self.processes:
-            self.processes[process_key]["sessions"].append(session)
-
-    def remove_session(self, process_key: str, session: UserSession):
-        """Remove a session from the process"""
-        if process_key in self.processes:
-            self.processes[process_key]["sessions"].remove(session)
-            self.stop_process(process_key)
-
-
 class ConnectionManager:
     """Class defining socket events"""
 
     def __init__(self):
-        self.active_connections = {}
+        self.active_connections: Dict[WebSocket, UserSession] = {}
 
     async def connect(self, websocket: WebSocket):
         await websocket.accept()
@@ -178,7 +178,7 @@ async def websocket_endpoint(websocket: WebSocket):
                 user_session = UserSession(websocket, process_key)
                 manager.active_connections[websocket] = user_session
 
-            process_manager.start_process(process_key, req_from_id, req_to_id, offset)
+            process_manager.start_process(process_key, file_name, "path_to_your_files")
             process_manager.add_session(process_key, user_session)
             user_session.start_thread(file_path)
     except WebSocketDisconnect:
