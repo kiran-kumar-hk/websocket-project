@@ -24,61 +24,38 @@ class ProcessManager:
     async def start_process(self, process_key: str, file_name: str, file_folder: str):
         """Start the subprocess if not already running"""
         async with self.lock:
-            try:
-                if process_key not in self.processes:
-                    process = subprocess.Popen(["nohup", "python", "main.py", file_name, file_folder])
-                    self.processes[process_key] = {
-                        "process": process,
-                        "sessions": set()
-                    }
-                    print(f"Started process {process_key} with PID: {process.pid}")
-            finally:
-                print(f"Releasing lock after starting process {process_key}")
-                self.lock.release()
+            if process_key not in self.processes:
+                process = subprocess.Popen(["nohup", "python", "main.py", file_name, file_folder])
+                self.processes[process_key] = {
+                    "process": process,
+                    "sessions": set()
+                }
+                print(f"Started process {process_key} with PID: {process.pid}")
 
     async def stop_process(self, process_key: str):
         """Stop the subprocess if no more sessions are using it"""
-        await self.lock.acquire()
-        print(f"Acquired lock to stop process {process_key}")
-        try:
+        async with self.lock:
             if process_key in self.processes:
                 if len(self.processes[process_key]["sessions"]) == 0:
                     process = self.processes[process_key]["process"]
                     print(f"Killing process {process_key} with PID: {process.pid}")
                     process.kill()
                     del self.processes[process_key]
-                else:
-                    print(f"Process {process_key} still has active sessions, not stopping")
-            else:
-                print(f"Process {process_key} not found in process manager")
-        finally:
-            print(f"Releasing lock after stopping process {process_key}")
-            self.lock.release()
 
     async def add_session(self, process_key: str, session: 'UserSession'):
         """Add a session to the process"""
-        await self.lock.acquire()
-        print(f"Acquired lock to add session to process {process_key}")
-        try:
+        async with self.lock:
             if process_key in self.processes:
                 self.processes[process_key]["sessions"].add(session)
                 print(f"Added session to process {process_key}, total sessions: {len(self.processes[process_key]['sessions'])}")
-        finally:
-            print(f"Releasing lock after adding session to process {process_key}")
-            self.lock.release()
 
     async def remove_session(self, process_key: str, session: 'UserSession'):
         """Remove a session from the process"""
-        await self.lock.acquire()
-        print(f"Acquired lock to remove session from process {process_key}")
-        try:
+        async with self.lock:
             if process_key in self.processes:
                 self.processes[process_key]["sessions"].discard(session)
                 print(f"Removed session from process {process_key}, remaining sessions: {len(self.processes[process_key]['sessions'])}")
                 await self.stop_process(process_key)
-        finally:
-            print(f"Releasing lock after removing session from process {process_key}")
-            self.lock.release()
 
 
 class UserSession:
