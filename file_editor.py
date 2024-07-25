@@ -1,19 +1,11 @@
-from fastapi import FastAPI, HTTPException, Form
-from fastapi.responses import HTMLResponse, JSONResponse
-from pydantic import BaseModel
-from git import Repo
+import streamlit as st
 import pandas as pd
+from git import Repo, GitCommandError
 import tempfile
 import os
 import shutil
-import io
 
-app = FastAPI()
-
-# Global variable to keep track of the GitCSVEditor instance
-editor = None
-
-
+# Helper class to manage Git and CSV operations
 class GitCSVEditor:
     def __init__(self, repo_url, branch_name, filename):
         self.repo_url = repo_url
@@ -38,122 +30,62 @@ class GitCSVEditor:
         origin = self.repo.remote(name='origin')
         origin.push()
 
-
-class CSVData(BaseModel):
-    data: list
-
-
-@app.get("/", response_class=HTMLResponse)
-async def index():
-    return HTMLResponse("""
-    <html>
-        <head>
-            <title>CSV Editor</title>
-        </head>
-        <body>
-            <h1>CSV Editor</h1>
-            <form action="/clone" method="post">
-                <label for="repoUrl">Repository URL:</label>
-                <input type="text" id="repoUrl" name="repoUrl" required>
-                <br>
-                <label for="branchName">Branch Name:</label>
-                <input type="text" id="branchName" name="branchName" required>
-                <br>
-                <label for="filename">CSV Filename:</label>
-                <input type="text" id="filename" name="filename" required>
-                <br>
-                <input type="submit" value="Clone Repository">
-            </form>
-
-            <h2>Edit CSV Data</h2>
-            <form action="/get-data" method="get">
-                <input type="submit" value="Load Data">
-            </form>
-
-            <form action="/save" method="post">
-                <textarea name="data" id="data" rows="10" cols="50" placeholder="Edit CSV data here" required></textarea>
-                <br>
-                <input type="submit" value="Save Changes">
-            </form>
-
-            <form action="/push" method="post">
-                <input type="submit" value="Push Changes">
-            </form>
-        </body>
-    </html>
-    """)
-
-
-@app.post("/clone")
-async def clone_repo(repoUrl: str = Form(...), branchName: str = Form(...), filename: str = Form(...)):
-    global editor
+# Function to fetch branches
+def fetch_branches(repo_url):
     try:
-        editor = GitCSVEditor(repoUrl, branchName, filename)
-        return JSONResponse(content={"message": "Repository cloned and branch checked out successfully."})
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        repo_dir = tempfile.mkdtemp()
+        repo = Repo.clone_from(repo_url, repo_dir)
+        branches = [branch.name for branch in repo.branches]
+        shutil.rmtree(repo_dir)
+        return branches
+    except GitCommandError as e:
+        st.error(f"Failed to fetch branches: {e}")
+        return []
 
+# Streamlit app layout
+st.title("CSV File Editor with Git Integration")
 
-@app.get("/get-data")
-async def get_data():
-    global editor
-    try:
-        if editor is None:
-            raise HTTPException(status_code=400, detail="Editor not initialized.")
+repo_url = st.text_input("Repository URL", "https://github.com/kiran-kumar-hk/resourcesettings.git")
 
-        df = editor.get_dataframe()
-        csv_data = df.to_csv(index=False)
-        return HTMLResponse(content=f"""
-        <html>
-            <body>
-                <h2>Edit CSV Data</h2>
-                <form action="/save" method="post">
-                    <textarea name="data" id="data" rows="10" cols="50" required>{csv_data}</textarea>
-                    <br>
-                    <input type="submit" value="Save Changes">
-                </form>
-                <form action="/push" method="post">
-                    <input type="submit" value="Push Changes">
-                </form>
-            </body>
-        </html>
-        """)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+if repo_url:
+    branches = fetch_branches(repo_url)
+    selected_branch = st.selectbox("Select Branch", [""] + branches)
 
+    if selected_branch:
+        try:
+            editor = GitCSVEditor(repo_url, selected_branch, "")
+            st.session_state.editor = editor
+        except GitCommandError as e:
+            st.error(f"Failed to clone repository: {e}")
+            st.stop()
 
-@app.post("/save")
-async def save_data(data: str = Form(...)):
-    global editor
-    try:
-        if editor is None:
-            raise HTTPException(status_code=400, detail="Editor not initialized.")
+        if 'editor' in st.session_state:
+            editor = st.session_state.editor
+            csv_files = [f for f in os.listdir(editor.repo_dir) if f.endswith('.csv')]
+            selected_file = st.selectbox("Select CSV File", csv_files)
 
-        df = pd.read_csv(io.StringIO(data))
-        editor.save_changes(df.to_dict(orient='records'))
-        return JSONResponse(content={"message": "Changes saved successfully."})
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+            if selected_file:
+                editor.filename = selected_file
+                editor.filepath = os.path.join(editor.repo_dir, editor.filename)
+                editor.df = pd.read_csv(editor.filepath)
+                df = editor.get_dataframe()
+                st.write("Edit the CSV data below:")
+                edited_df = st.experimental_data_editor(df)
 
+                # Save button
+                if st.button("Save"):
+                    editor.save_changes(edited_df)
+                    st.success("File saved successfully.")
 
-@app.post("/push")
-async def push_data():
-    global editor
-    try:
-        if editor is None:
-            raise HTTPException(status_code=400, detail="Editor not initialized.")
+                # Push button
+                if st.button("Push"):
+                    editor.push_changes()
+                    st.success("Changes pushed to the repository.")
 
-        editor.push_changes()
-        return JSONResponse(content={"message": "Changes pushed successfully."})
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-# Cleanup temporary directory
-@app.on_event("shutdown")
+# Cleanup function (to be called manually after app shutdown)
 def cleanup():
-    global editor
-    if editor and os.path.exists(editor.repo_dir):
-        shutil.rmtree(editor.repo_dir)
+    if 'editor' in st.session_state:
+        shutil.rmtree(st.session_state.editor.repo_dir)
+        del st.session_state.editor
 
-# Run the app with: uvicorn app:app --reload
+# Note: Cleanup needs to be called manually in your environment after app shutdown
