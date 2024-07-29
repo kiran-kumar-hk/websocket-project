@@ -17,12 +17,12 @@ class GitCSVEditor:
         self.username = username
         self.repo_dir = tempfile.mkdtemp()
         # Clone the repository using the token for authentication
-        self.repo = Repo.clone_from(self.authenticated_url(self.repo_url, self.token, self.username), self.repo_dir)
+        self.repo = Repo.clone_from(self.authenticated_url(self.repo_url, self.username, self.token), self.repo_dir)
         self.repo.git.checkout(self.branch_name)
         self.filepath = os.path.join(self.repo_dir, self.filename)
         self.df = pd.read_csv(self.filepath)
 
-    def authenticated_url(self, url, token, username):
+    def authenticated_url(self, url, username, token):
         # Modify the repository URL to include the username and token for authentication
         return url.replace("https://", f"https://{username}:{token}@")
 
@@ -38,8 +38,7 @@ class GitCSVEditor:
             self.repo.index.add([self.filepath])
             self.repo.index.commit("Updated CSV file")
             origin = self.repo.remote(name='origin')
-            # Use the authenticated URL for pushing changes
-            push_info = origin.push(self.authenticated_url(self.repo_url, self.token, self.username))
+            push_info = origin.push(self.authenticated_url(self.repo_url, self.username, self.token))
             st.write(push_info)  # Display push information for debugging
         except GitCommandError as e:
             st.error(f"Failed to push changes: {e}")
@@ -58,7 +57,7 @@ def handle_remove_readonly(func, path, exc):
 
 
 # Function to fetch branches
-def fetch_branches(repo_url, token, username):
+def fetch_branches(repo_url, username, token):
     repo_dir = tempfile.mkdtemp()
     try:
         repo = Repo.clone_from(f"https://{username}:{token}@{repo_url.split('https://')[-1]}", repo_dir)
@@ -91,7 +90,7 @@ username = st.text_input("GitHub Username")
 token = st.text_input("Personal Access Token", type="password")
 
 if repo_url and token and username:
-    branches = fetch_branches(repo_url, token, username)
+    branches = fetch_branches(repo_url, username, token)
     st.write(f"Fetched branches: {branches}")  # Debug output to verify branches
     if not branches:
         st.error("No branches found or failed to fetch branches.")
