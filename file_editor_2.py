@@ -38,7 +38,7 @@ class GitCSVEditor:
             self.repo.index.add([self.filepath])
             self.repo.index.commit("Updated CSV file")
             origin = self.repo.remote(name='origin')
-            push_info = origin.push(self.authenticated_url(self.repo_url, self.username, self.token))
+            push_info = origin.push(refspec=f'{self.branch_name}:{self.branch_name}')
             st.write(push_info)  # Display push information for debugging
         except GitCommandError as e:
             st.error(f"Failed to push changes: {e}")
