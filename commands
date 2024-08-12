@@ -5,3 +5,11 @@ https://gitlab.com/namma-group1/File_Editor.git
 kirankumar.hk
 
 glpat-Zf6UpxRcdig1G3ou42dh
+
+
+if selected_branch and switch_branch(repo_dir, selected_branch):
+        csv_files = []
+        for root, dirs, files in os.walk(repo_dir):
+            for file in files:
+                if file.endswith('.csv'):
+                    csv_files.append(os.path.relpath(os.path.join(root, file), repo_dir))
