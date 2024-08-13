@@ -139,6 +139,7 @@ if 'repo_dir' not in st.session_state:
         st.write(f"Repository cloned to: {repo_dir}")
 else:
     repo_dir = st.session_state.repo_dir
+    st.write(f"Repository cloned to: {repo_dir}")
 
 # Fetch branches
 branches = fetch_branches(REPO_URL, USERNAME, TOKEN)
@@ -149,6 +150,7 @@ else:
 
     if selected_branch and switch_branch(repo_dir, selected_branch):
         csv_files = glob.glob(os.path.join(repo_dir, "**/*.csv"), recursive=True)
+        csv_files = [os.path.relpath(file, repo_dir) for file in csv_files]
         if not csv_files:
             st.error("No CSV files found in the selected branch.")
         else:
