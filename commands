@@ -7,9 +7,29 @@ kirankumar.hk
 glpat-Zf6UpxRcdig1G3ou42dh
 
 
-if selected_branch and switch_branch(repo_dir, selected_branch):
-        csv_files = []
-        for root, dirs, files in os.walk(repo_dir):
-            for file in files:
-                if file.endswith('.csv'):
-                    csv_files.append(os.path.relpath(os.path.join(root, file), repo_dir))
+def save_changes(self, new_data):
+    # Convert the edited data into a DataFrame (edited data comes from st.data_editor)
+    edited_df = pd.DataFrame(new_data, columns=self.df.columns)
+
+    # If headers are present
+    if self.num_headers > 0:
+        headers_df = pd.DataFrame(self.non_editable_headers)  # Non-editable headers
+
+        # Ensure number of columns match between headers and edited data
+        if headers_df.shape[1] != edited_df.shape[1]:
+            # Trim or adjust the number of columns to match
+            min_columns = min(headers_df.shape[1], edited_df.shape[1])
+            headers_df = headers_df.iloc[:, :min_columns]  # Trim headers to match edited_df columns
+            edited_df = edited_df.iloc[:, :min_columns]    # Trim edited data to match headers_df columns
+
+        # Concatenate headers and the edited data
+        final_df = pd.concat([headers_df, edited_df], ignore_index=True)
+    else:
+        # If no headers, simply save the edited data
+        final_df = edited_df
+
+    # Save the combined data back to the CSV without headers (they're already in the data)
+    final_df.to_csv(self.filepath, index=False, header=False)
+
+    # Reload the data to ensure changes are applied
+    self.df = pd.read_csv(self.filepath, header=self.num_headers-1 if self.num_headers > 0 else None)
