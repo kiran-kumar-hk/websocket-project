@@ -1,0 +1,99 @@
+import streamlit as st
+import subprocess
+import tempfile
+import os
+import shutil
+
+def asof(aa, bb, cc, path):
+    cmd = ['python', 'run', 'archive_file.py', '--aa', aa, '--bb', bb, '--cc', cc, '--path', path]
+    subprocess.run(cmd)
+
+def eod(aa, path):
+    cmd = ['python', 'run', 'archive_file.py', '--aa', aa, '--path', path]
+    subprocess.run(cmd)
+
+def sdd(dd, ee, path):
+    cmd = ['python', 'run', 'archive_file.py', '--dd', dd, '--ee', '--path', path]
+    subprocess.run(cmd)
+
+def jhd(ff, path):
+    cmd = ['python', 'run', 'archive_file.py', '--ff', ff, '--path', path]
+    subprocess.run(cmd)
+
+def clear_temp_folder(path):
+    """Delete all files in the temp directory."""
+    for filename in os.listdir(path):
+        file_path = os.path.join(path, filename)
+        try:
+            if os.path.isfile(file_path) or os.path.islink(file_path):
+                os.unlink(file_path)
+            elif os.path.isdir(file_path):
+                shutil.rmtree(file_path)
+        except Exception as e:
+            st.error(f'Failed to delete {file_path}. Reason: {e}')
+
+def process_option(option, inputs, path):
+    clear_temp_folder(path)  # Clear previous files before generating new ones
+    if option == 'asof':
+        asof(inputs['aa'], inputs['bb'], inputs['cc'], path)
+    elif option == 'eod':
+        eod(inputs['aa'], path)
+    elif option == 'sdd':
+        sdd(inputs['dd'], inputs['ee'], path)
+    elif option == 'jhd':
+        jhd(inputs['ff'], path)
+
+def main():
+    st.title("File Download App")
+
+    # Initialize temporary directory
+    if 'temp_dir' not in st.session_state:
+        st.session_state['temp_dir'] = tempfile.mkdtemp()
+    path = st.session_state['temp_dir']
+
+    # Dropdown menu for options
+    option = st.selectbox('Select an option', ['asof', 'eod', 'sdd', 'jhd'])
+
+    inputs = {}
+    if option == 'asof':
+        # Input fields for 'asof'
+        inputs['aa'] = st.text_input('Enter aa')
+        inputs['bb'] = st.text_input('Enter bb')
+        inputs['cc'] = st.text_input('Enter cc')
+    elif option == 'eod':
+        # Input field for 'eod'
+        inputs['aa'] = st.text_input('Enter aa')
+    elif option == 'sdd':
+        # Input fields for 'sdd'
+        inputs['dd'] = st.text_input('Enter dd')
+        inputs['ee'] = st.text_input('Enter ee')
+    elif option == 'jhd':
+        # Input field for 'jhd'
+        inputs['ff'] = st.text_input('Enter ff')
+
+
+    # Check if all required inputs are provided
+    if all(inputs.values()):
+        with st.spinner('Processing...'):
+            process_option(option, inputs, path)
+
+        # Get the list of generated files and create download buttons for each
+        generated_files = [f for f in os.listdir(path) if os.path.isfile(os.path.join(path, f))]
+
+        if generated_files:
+            st.success(f"{len(generated_files)} file(s) generated!")
+            for file in generated_files:
+                file_path = os.path.join(path, file)
+                with open(file_path, 'rb') as f:
+                    st.download_button(
+                        label=f"Download {file}",
+                        data=f,
+                        file_name=file
+                    )
+        else:
+            st.error('No files were generated.')
+    else:
+        st.error('Please fill in all required fields.')
+
+if __name__ == '__main__':
+    main()
