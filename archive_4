@@ -1,0 +1,115 @@
+import streamlit as st
+import subprocess
+import tempfile
+import os
+import shutil
+import zipfile
+from io import BytesIO
+
+def asof(aa, bb, cc, path):
+    # Simulate file generation (replace with your subprocess call)
+    file1_path = os.path.join(path, 'asof_file1.txt')
+    file2_path = os.path.join(path, 'asof_file2.txt')
+    with open(file1_path, 'w') as f:
+        f.write(f"ASOF File 1 with aa={aa}, bb={bb}, cc={cc}")
+    with open(file2_path, 'w') as f:
+        f.write(f"ASOF File 2 with aa={aa}, bb={bb}, cc={cc}")
+    return [file1_path, file2_path]
+
+def eod(aa, path):
+    # Simulate file generation (replace with your subprocess call)
+    file1_path = os.path.join(path, 'eod_file1.txt')
+    with open(file1_path, 'w') as f:
+        f.write(f"EOD File 1 with aa={aa}")
+    return [file1_path]
+
+def sdd(dd, ee, path):
+    # Simulate file generation (replace with your subprocess call)
+    file1_path = os.path.join(path, 'sdd_file1.txt')
+    with open(file1_path, 'w') as f:
+        f.write(f"SDD File 1 with dd={dd}, ee={ee}")
+    return [file1_path]
+
+def jhd(ff, path):
+    # Simulate file generation (replace with your subprocess call)
+    file1_path = os.path.join(path, 'jhd_file1.txt')
+    with open(file1_path, 'w') as f:
+        f.write(f"JHD File 1 with ff={ff}")
+    return [file1_path]
+
+def process_option(option, inputs, path):
+    """Process the selected option and return the paths of generated files."""
+    if option == 'asof':
+        return asof(inputs['aa'], inputs['bb'], inputs['cc'], path)
+    elif option == 'eod':
+        return eod(inputs['aa'], path)
+    elif option == 'sdd':
+        return sdd(inputs['dd'], inputs['ee'], path)
+    elif option == 'jhd':
+        return jhd(inputs['ff'], path)
+
+def zip_files(files):
+    """Zip the generated files into a BytesIO object."""
+    zip_buffer = BytesIO()
+    with zipfile.ZipFile(zip_buffer, 'w') as zipf:
+        for file in files:
+            zipf.write(file, os.path.basename(file))
+    zip_buffer.seek(0)  # Reset buffer position to the beginning
+    return zip_buffer
+
+def main():
+    st.title("File Download App")
+
+    # Initialize temporary directory
+    if 'temp_dir' not in st.session_state:
+        st.session_state['temp_dir'] = tempfile.mkdtemp()
+    path = st.session_state['temp_dir']
+
+    # Dropdown menu for options
+    option = st.selectbox('Select an option', ['asof', 'eod', 'sdd', 'jhd'])
+
+    inputs = {}
+    if option == 'asof':
+        # Input fields for 'asof'
+        inputs['aa'] = st.text_input('Enter aa')
+        inputs['bb'] = st.text_input('Enter bb')
+        inputs['cc'] = st.text_input('Enter cc')
+    elif option == 'eod':
+        # Input field for 'eod'
+        inputs['aa'] = st.text_input('Enter aa')
+    elif option == 'sdd':
+        # Input fields for 'sdd'
+        inputs['dd'] = st.text_input('Enter dd')
+        inputs['ee'] = st.text_input('Enter ee')
+    elif option == 'jhd':
+        # Input field for 'jhd'
+        inputs['ff'] = st.text_input('Enter ff')
+
+    # Check if all required inputs are provided
+    if all(inputs.values()):
+        # Generate the files and prepare for download when the download button is clicked
+        if st.download_button('Download', 'Download', file_name='output.zip', mime='application/zip'):
+            with st.spinner('Processing...'):
+                # Process the selected option and generate the files
+                generated_files = process_option(option, inputs, path)
+
+                # Zip the generated files into a buffer
+                zip_buffer = zip_files(generated_files)
+                
+                # Provide the zip file for download
+                st.download_button(
+                    label="Click here to download your files",
+                    data=zip_buffer,
+                    file_name="output.zip",
+                    mime="application/zip"
+                )
+
+                # Clean up generated files
+                for file in generated_files:
+                    os.remove(file)
+
+    else:
+        st.error('Please fill in all required fields.')
+
+if __name__ == '__main__':
+    main()
