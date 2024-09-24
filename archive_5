@@ -1,0 +1,124 @@
+import streamlit as st
+import subprocess
+import tempfile
+import os
+import shutil
+import zipfile
+
+def asof(aa, bb, cc, path):
+    # Simulate file generation (replace with your subprocess call)
+    file1_path = os.path.join(path, 'asof_file1.txt')
+    file2_path = os.path.join(path, 'asof_file2.txt')
+    with open(file1_path, 'w') as f:
+        f.write(f"ASOF File 1 with aa={aa}, bb={bb}, cc={cc}")
+    with open(file2_path, 'w') as f:
+        f.write(f"ASOF File 2 with aa={aa}, bb={bb}, cc={cc}")
+    return [file1_path, file2_path]
+
+def eod(aa, path):
+    # Simulate file generation (replace with your subprocess call)
+    file1_path = os.path.join(path, 'eod_file1.txt')
+    with open(file1_path, 'w') as f:
+        f.write(f"EOD File 1 with aa={aa}")
+    return [file1_path]
+
+def sdd(dd, ee, path):
+    # Simulate file generation (replace with your subprocess call)
+    file1_path = os.path.join(path, 'sdd_file1.txt')
+    with open(file1_path, 'w') as f:
+        f.write(f"SDD File 1 with dd={dd}, ee={ee}")
+    return [file1_path]
+
+def jhd(ff, path):
+    # Simulate file generation (replace with your subprocess call)
+    file1_path = os.path.join(path, 'jhd_file1.txt')
+    with open(file1_path, 'w') as f:
+        f.write(f"JHD File 1 with ff={ff}")
+    return [file1_path]
+
+def zip_files(files, zip_path):
+    """Zip the generated files."""
+    with zipfile.ZipFile(zip_path, 'w') as zipf:
+        for file in files:
+            zipf.write(file, os.path.basename(file))
+    return zip_path
+
+def clear_temp_folder(path):
+    """Delete all files in the temp directory."""
+    for filename in os.listdir(path):
+        file_path = os.path.join(path, filename)
+        try:
+            if os.path.isfile(file_path) or os.path.islink(file_path):
+                os.unlink(file_path)
+            elif os.path.isdir(file_path):
+                shutil.rmtree(file_path)
+        except Exception as e:
+            st.error(f'Failed to delete {file_path}. Reason: {e}')
+
+def process_option(option, inputs, path):
+    """Process the selected option and return the paths of generated files."""
+    clear_temp_folder(path)  # Clear previous files before generating new ones
+    if option == 'asof':
+        return asof(inputs['aa'], inputs['bb'], inputs['cc'], path)
+    elif option == 'eod':
+        return eod(inputs['aa'], path)
+    elif option == 'sdd':
+        return sdd(inputs['dd'], inputs['ee'], path)
+    elif option == 'jhd':
+        return jhd(inputs['ff'], path)
+
+def main():
+    st.title("File Download App")
+
+    # Initialize temporary directory
+    if 'temp_dir' not in st.session_state:
+        st.session_state['temp_dir'] = tempfile.mkdtemp()
+    path = st.session_state['temp_dir']
+
+    # Dropdown menu for options
+    option = st.selectbox('Select an option', ['asof', 'eod', 'sdd', 'jhd'])
+
+    inputs = {}
+    if option == 'asof':
+        # Input fields for 'asof'
+        inputs['aa'] = st.text_input('Enter aa')
+        inputs['bb'] = st.text_input('Enter bb')
+        inputs['cc'] = st.text_input('Enter cc')
+    elif option == 'eod':
+        # Input field for 'eod'
+        inputs['aa'] = st.text_input('Enter aa')
+    elif option == 'sdd':
+        # Input fields for 'sdd'
+        inputs['dd'] = st.text_input('Enter dd')
+        inputs['ee'] = st.text_input('Enter ee')
+    elif option == 'jhd':
+        # Input field for 'jhd'
+        inputs['ff'] = st.text_input('Enter ff')
+
+    # Check if all required inputs are provided
+    if all(inputs.values()):
+        if st.button('Download'):
+            with st.spinner('Processing...'):
+                # Process the selected option and generate the files
+                generated_files = process_option(option, inputs, path)
+
+                # Zip the generated files
+                zip_path = os.path.join(path, 'output.zip')
+                zip_files(generated_files, zip_path)
+
+                # Provide download link for the zip
+                with open(zip_path, 'rb') as f:
+                    st.download_button(
+                        label="Click here to download your files",
+                        data=f,
+                        file_name="output.zip",
+                        mime="application/zip"
+                    )
+                
+                # Clean up files after downloading
+                clear_temp_folder(path)
+    else:
+        st.error('Please fill in all required fields.')
+
+if __name__ == '__main__':
+    main()
